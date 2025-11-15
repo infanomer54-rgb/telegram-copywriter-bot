@@ -1,5 +1,4 @@
 import os
-import asyncio
 import requests
 import logging
 from telegram import Update, ReplyKeyboardMarkup
@@ -15,6 +14,7 @@ logger = logging.getLogger(__name__)
 # Токены из переменных окружения Railway
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+RAILWAY_STATIC_URL = os.getenv("RAILWAY_STATIC_URL", "")
 
 BASE_URL = "https://api.deepseek.com/v1"
 
@@ -306,33 +306,69 @@ async def process_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Ошибка: {context.error}")
 
+# Создаем Application глобально
+application = Application.builder().token(TELEGRAM_TOKEN).build()
+
+def setup_handlers():
+    """Настраиваем обработчики"""
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_choice))
+    application.add_error_handler(error_handler)
+
 def main():
-    # Проверяем наличие токенов
+    """Запуск бота с webhook"""
     if not TELEGRAM_TOKEN:
-        logger.error("❌ TELEGRAM_TOKEN не найден в переменных окружения!")
+        logger.error("❌ TELEGRAM_TOKEN не найден!")
         return
         
     if not DEEPSEEK_API_KEY:
         logger.warning("⚠️ DEEPSEEK_API_KEY не найден. Будет использоваться резервная генерация.")
 
     try:
-        # Создаем Application с минимальной конфигурацией
-        application = Application.builder().token(TELEGRAM_TOKEN).build()
-
-        # Добавляем обработчики
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_choice))
+        # Настраиваем обработчики
+        setup_handlers()
         
-        # Добавляем обработчик ошибок
-        application.add_error_handler(error_handler)
-
-        logger.info("🚀 Запуск бота на Railway...")
+        # Запускаем webhook сервер
+        from flask import Flask, request
+        import threading
         
-        # Запускаем бота
-        application.run_polling(drop_pending_updates=True)
+        app = Flask(__name__)
+        
+        @app.route('/')
+        def home():
+            return "🤖 Copywriter Bot is running!"
+        
+        @app.route('/webhook', methods=['POST'])
+        def webhook():
+            """Endpoint для webhook Telegram"""
+            update = Update.de_json(request.get_json(force=True), application.bot)
+            application.update_queue.put(update)
+            return 'OK'
+        
+        @app.route('/set_webhook', methods=['GET'])
+        def set_webhook():
+            """Установка webhook"""
+            if RAILWAY_STATIC_URL:
+                webhook_url = f"{RAILWAY_STATIC_URL}/webhook"
+                application.bot.set_webhook(webhook_url)
+                return f"Webhook установлен: {webhook_url}"
+            return "RAILWAY_STATIC_URL не настроен"
+        
+        # Запускаем обработку обновлений в отдельном потоке
+        def run_bot():
+            application.run_polling()
+        
+        bot_thread = threading.Thread(target=run_bot, daemon=True)
+        bot_thread.start()
+        
+        logger.info("✅ Бот запущен в режиме webhook!")
+        
+        # Запускаем Flask сервер
+        port = int(os.getenv("PORT", 5000))
+        app.run(host='0.0.0.0', port=port)
         
     except Exception as e:
-        logger.error(f"❌ Критическая ошибка запуска бота: {e}")
+        logger.error(f"❌ Ошибка запуска: {e}")
 
 if __name__ == "__main__":
     main()
