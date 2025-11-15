@@ -20,6 +20,9 @@ BASE_URL = "https://api.deepseek.com/v1"
 
 def deepseek_chat_completion(messages, max_tokens=1000):
     """Функция для работы с DeepSeek API"""
+    if not DEEPSEEK_API_KEY:
+        raise Exception("DEEPSEEK_API_KEY не настроен")
+        
     headers = {
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
         "Content-Type": "application/json"
@@ -153,22 +156,24 @@ COPY_TYPES = [
     "📚 Статья или блог"
 ]
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def create_keyboard():
+    """Создает клавиатуру с кнопками"""
     keyboard = []
     for item in COPY_TYPES:
         keyboard.append([item])
     
-    reply_markup = ReplyKeyboardMarkup(
+    return ReplyKeyboardMarkup(
         keyboard,
         one_time_keyboard=True,
         resize_keyboard=True
     )
-    
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Привет! 👋 Я AI Copywriter Bot (DeepSeek)\n"
         "Использую мощный AI для создания качественных текстов.\n\n"
         "Выбери тип контента:",
-        reply_markup=reply_markup
+        reply_markup=create_keyboard()
     )
 
 async def handle_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -264,19 +269,9 @@ async def process_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(f"🎯 Вот твой {copy_type.lower()} (DeepSeek AI):\n\n{result}")
             
-        keyboard = []
-        for item in COPY_TYPES:
-            keyboard.append([item])
-        
-        reply_markup = ReplyKeyboardMarkup(
-            keyboard,
-            one_time_keyboard=True,
-            resize_keyboard=True
-        )
-            
         await update.message.reply_text(
             "✨ Хочешь создать еще один текст? Выбери тип контента:",
-            reply_markup=reply_markup
+            reply_markup=create_keyboard()
         )
             
     except Exception as e:
@@ -302,20 +297,10 @@ async def process_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Используем резервную генерацию
         result = generate_fallback_text(brief, copy_type)
         
-        keyboard = []
-        for item in COPY_TYPES:
-            keyboard.append([item])
-        
-        reply_markup = ReplyKeyboardMarkup(
-            keyboard,
-            one_time_keyboard=True,
-            resize_keyboard=True
-        )
-        
         await update.message.reply_text(f"🎯 Вот твой {copy_type.lower()}:\n\n{result}")
         await update.message.reply_text(
             "✨ Создать еще текст?",
-            reply_markup=reply_markup
+            reply_markup=create_keyboard()
         )
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -331,7 +316,7 @@ def main():
         logger.warning("⚠️ DEEPSEEK_API_KEY не найден. Будет использоваться резервная генерация.")
 
     try:
-        # Создаем Application
+        # Создаем Application с минимальной конфигурацией
         application = Application.builder().token(TELEGRAM_TOKEN).build()
 
         # Добавляем обработчики
@@ -341,13 +326,13 @@ def main():
         # Добавляем обработчик ошибок
         application.add_error_handler(error_handler)
 
-        logger.info("✅ Бот запущен на Railway с DeepSeek API!")
+        logger.info("🚀 Запуск бота на Railway...")
         
         # Запускаем бота
-        application.run_polling()
+        application.run_polling(drop_pending_updates=True)
         
     except Exception as e:
-        logger.error(f"❌ Ошибка запуска бота: {e}")
+        logger.error(f"❌ Критическая ошибка запуска бота: {e}")
 
 if __name__ == "__main__":
     main()
