@@ -1,8 +1,9 @@
 import os
-import requests
+import asyncio
+import aiohttp
 import logging
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # Настройка логирования
 logging.basicConfig(
@@ -17,8 +18,8 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
 BASE_URL = "https://api.deepseek.com/v1"
 
-def deepseek_chat_completion(messages, max_tokens=1000):
-    """Функция для работы с DeepSeek API"""
+async def deepseek_chat_completion(messages, max_tokens=1000):
+    """Асинхронная функция для работы с DeepSeek API"""
     headers = {
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
         "Content-Type": "application/json"
@@ -33,16 +34,17 @@ def deepseek_chat_completion(messages, max_tokens=1000):
     
     try:
         logger.info("🔄 Отправка запроса к DeepSeek API...")
-        response = requests.post(
-            f"{BASE_URL}/chat/completions", 
-            headers=headers, 
-            json=data, 
-            timeout=30
-        )
-        response.raise_for_status()
-        
-        logger.info("✅ Успешный ответ от DeepSeek API")
-        return response.json()
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{BASE_URL}/chat/completions", 
+                headers=headers, 
+                json=data, 
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
+                response.raise_for_status()
+                result = await response.json()
+                logger.info("✅ Успешный ответ от DeepSeek API")
+                return result
     except Exception as e:
         logger.error(f"❌ Ошибка DeepSeek API: {e}")
         raise
@@ -157,22 +159,22 @@ def create_keyboard():
     keyboard = [[item] for item in COPY_TYPES]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-def start(update: Update, context: CallbackContext):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start"""
-    update.message.reply_text(
+    await update.message.reply_text(
         "Привет! 👋 Я AI Copywriter Bot (DeepSeek)\n"
         "Использую мощный AI для создания качественных текстов.\n\n"
         "Выбери тип контента:",
         reply_markup=create_keyboard()
     )
 
-def handle_choice(update: Update, context: CallbackContext):
+async def handle_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик выбора типа контента"""
     choice = update.message.text
     
     if choice in COPY_TYPES:
         context.user_data["copy_type"] = choice
-        update.message.reply_text(
+        await update.message.reply_text(
             f"Отлично! Ты выбрал: *{choice}*\n\n"
             "Теперь пришли, пожалуйста, заполненное ТЗ по шаблону:",
             parse_mode="Markdown"
@@ -217,20 +219,20 @@ def handle_choice(update: Update, context: CallbackContext):
 
 Заполни этот шаблон и пришли мне!"""
         
-        update.message.reply_text(template)
+        await update.message.reply_text(template)
     else:
-        process_brief(update, context)
+        await process_brief(update, context)
 
-def process_brief(update: Update, context: CallbackContext):
+async def process_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка ТЗ и генерация текста"""
     brief = update.message.text
     copy_type = context.user_data.get("copy_type", "копирайт")
 
     try:
-        update.message.reply_text("⏳ Генерирую текст с помощью DeepSeek AI...")
+        await update.message.reply_text("⏳ Генерирую текст с помощью DeepSeek AI...")
 
         # Пробуем DeepSeek API
-        response = deepseek_chat_completion([
+        response = await deepseek_chat_completion([
             {
                 "role": "system", 
                 "content": f"""Ты профессиональный копирайтер-эксперт. Создай качественный {copy_type} на русском языке.
@@ -256,13 +258,13 @@ def process_brief(update: Update, context: CallbackContext):
         
         # Разбиваем результат на части если он слишком длинный
         if len(result) > 4000:
-            update.message.reply_text(f"🎯 Вот твой {copy_type.lower()} (DeepSeek AI):\n\n")
+            await update.message.reply_text(f"🎯 Вот твой {copy_type.lower()} (DeepSeek AI):\n\n")
             for i in range(0, len(result), 4000):
-                update.message.reply_text(result[i:i+4000])
+                await update.message.reply_text(result[i:i+4000])
         else:
-            update.message.reply_text(f"🎯 Вот твой {copy_type.lower()} (DeepSeek AI):\n\n{result}")
+            await update.message.reply_text(f"🎯 Вот твой {copy_type.lower()} (DeepSeek AI):\n\n{result}")
             
-        update.message.reply_text(
+        await update.message.reply_text(
             "✨ Хочешь создать еще один текст? Выбери тип контента:",
             reply_markup=create_keyboard()
         )
@@ -273,30 +275,30 @@ def process_brief(update: Update, context: CallbackContext):
         
         # Если DeepSeek недоступен, используем резервную генерацию
         if "402" in error_msg or "Payment" in error_msg:
-            update.message.reply_text(
+            await update.message.reply_text(
                 "❌ Недостаточно средств на аккаунте DeepSeek.\n"
                 "Использую резервную генерацию..."
             )
         elif "401" in error_msg or "auth" in error_msg.lower():
-            update.message.reply_text(
+            await update.message.reply_text(
                 "❌ Ошибка аутентификации DeepSeek.\n"
                 "Использую резервную генерацию..."
             )
         else:
-            update.message.reply_text(
+            await update.message.reply_text(
                 "⏳ DeepSeek временно недоступен. Использую резервную генерацию..."
             )
         
         # Используем резервную генерацию
         result = generate_fallback_text(brief, copy_type)
         
-        update.message.reply_text(f"🎯 Вот твой {copy_type.lower()}:\n\n{result}")
-        update.message.reply_text(
+        await update.message.reply_text(f"🎯 Вот твой {copy_type.lower()}:\n\n{result}")
+        await update.message.reply_text(
             "✨ Создать еще текст?",
             reply_markup=create_keyboard()
         )
 
-def error_handler(update: Update, context: CallbackContext):
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик ошибок"""
     logger.error(f"Ошибка: {context.error}")
 
@@ -311,24 +313,20 @@ def main():
         logger.warning("⚠️ DEEPSEEK_API_KEY не найден. Будет использоваться резервная генерация.")
 
     try:
-        # Создаем и настраиваем Updater
-        updater = Updater(TELEGRAM_TOKEN, use_context=True)
-        
-        # Получаем диспетчер для регистрации обработчиков
-        dp = updater.dispatcher
+        # Создаем и настраиваем Application для Python 3.13
+        application = Application.builder().token(TELEGRAM_TOKEN).build()
 
         # Добавляем обработчики
-        dp.add_handler(CommandHandler("start", start))
-        dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_choice))
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_choice))
         
         # Добавляем обработчик ошибок
-        dp.add_error_handler(error_handler)
+        application.add_error_handler(error_handler)
 
-        logger.info("✅ Бот с DeepSeek запущен на Railway!")
+        logger.info("✅ Бот с DeepSeek запущен на Python 3.13.9!")
         
         # Запускаем бота
-        updater.start_polling()
-        updater.idle()
+        application.run_polling()
         
     except Exception as e:
         logger.error(f"❌ Ошибка запуска бота: {e}")
