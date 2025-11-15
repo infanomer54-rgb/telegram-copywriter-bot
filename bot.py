@@ -1,11 +1,15 @@
 import os
+import asyncio
 import requests
 import logging
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # Настройка логирования
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
 # Токены из переменных окружения Railway
@@ -149,18 +153,22 @@ COPY_TYPES = [
     "📚 Статья или блог"
 ]
 
-reply_keyboard = ReplyKeyboardMarkup(
-    [[item] for item in COPY_TYPES],
-    one_time_keyboard=True,
-    resize_keyboard=True
-)
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = []
+    for item in COPY_TYPES:
+        keyboard.append([item])
+    
+    reply_markup = ReplyKeyboardMarkup(
+        keyboard,
+        one_time_keyboard=True,
+        resize_keyboard=True
+    )
+    
     await update.message.reply_text(
         "Привет! 👋 Я AI Copywriter Bot (DeepSeek)\n"
         "Использую мощный AI для создания качественных текстов.\n\n"
         "Выбери тип контента:",
-        reply_markup=reply_keyboard
+        reply_markup=reply_markup
     )
 
 async def handle_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -256,9 +264,19 @@ async def process_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(f"🎯 Вот твой {copy_type.lower()} (DeepSeek AI):\n\n{result}")
             
+        keyboard = []
+        for item in COPY_TYPES:
+            keyboard.append([item])
+        
+        reply_markup = ReplyKeyboardMarkup(
+            keyboard,
+            one_time_keyboard=True,
+            resize_keyboard=True
+        )
+            
         await update.message.reply_text(
             "✨ Хочешь создать еще один текст? Выбери тип контента:",
-            reply_markup=reply_keyboard
+            reply_markup=reply_markup
         )
             
     except Exception as e:
@@ -283,11 +301,25 @@ async def process_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Используем резервную генерацию
         result = generate_fallback_text(brief, copy_type)
+        
+        keyboard = []
+        for item in COPY_TYPES:
+            keyboard.append([item])
+        
+        reply_markup = ReplyKeyboardMarkup(
+            keyboard,
+            one_time_keyboard=True,
+            resize_keyboard=True
+        )
+        
         await update.message.reply_text(f"🎯 Вот твой {copy_type.lower()}:\n\n{result}")
         await update.message.reply_text(
             "✨ Создать еще текст?",
-            reply_markup=reply_keyboard
+            reply_markup=reply_markup
         )
+
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.error(f"Ошибка: {context.error}")
 
 def main():
     # Проверяем наличие токенов
@@ -298,13 +330,24 @@ def main():
     if not DEEPSEEK_API_KEY:
         logger.warning("⚠️ DEEPSEEK_API_KEY не найден. Будет использоваться резервная генерация.")
 
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    try:
+        # Создаем Application
+        application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_choice))
+        # Добавляем обработчики
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_choice))
+        
+        # Добавляем обработчик ошибок
+        application.add_error_handler(error_handler)
 
-    logger.info("✅ Бот запущен на Railway с DeepSeek API!")
-    app.run_polling()
+        logger.info("✅ Бот запущен на Railway с DeepSeek API!")
+        
+        # Запускаем бота
+        application.run_polling()
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка запуска бота: {e}")
 
 if __name__ == "__main__":
     main()
