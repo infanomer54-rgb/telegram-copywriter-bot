@@ -2,7 +2,7 @@ import os
 import requests
 import logging
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
 # Настройка логирования
 logging.basicConfig(
@@ -14,15 +14,11 @@ logger = logging.getLogger(__name__)
 # Токены из переменных окружения Railway
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-RAILWAY_STATIC_URL = os.getenv("RAILWAY_STATIC_URL", "")
 
 BASE_URL = "https://api.deepseek.com/v1"
 
 def deepseek_chat_completion(messages, max_tokens=1000):
     """Функция для работы с DeepSeek API"""
-    if not DEEPSEEK_API_KEY:
-        raise Exception("DEEPSEEK_API_KEY не настроен")
-        
     headers = {
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
         "Content-Type": "application/json"
@@ -157,30 +153,26 @@ COPY_TYPES = [
 ]
 
 def create_keyboard():
-    """Создает клавиатуру с кнопками"""
-    keyboard = []
-    for item in COPY_TYPES:
-        keyboard.append([item])
-    
-    return ReplyKeyboardMarkup(
-        keyboard,
-        one_time_keyboard=True,
-        resize_keyboard=True
-    )
+    """Создание клавиатуры"""
+    keyboard = [[item] for item in COPY_TYPES]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+def start(update: Update, context: CallbackContext):
+    """Обработчик команды /start"""
+    update.message.reply_text(
         "Привет! 👋 Я AI Copywriter Bot (DeepSeek)\n"
         "Использую мощный AI для создания качественных текстов.\n\n"
         "Выбери тип контента:",
         reply_markup=create_keyboard()
     )
 
-async def handle_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_choice(update: Update, context: CallbackContext):
+    """Обработчик выбора типа контента"""
     choice = update.message.text
+    
     if choice in COPY_TYPES:
         context.user_data["copy_type"] = choice
-        await update.message.reply_text(
+        update.message.reply_text(
             f"Отлично! Ты выбрал: *{choice}*\n\n"
             "Теперь пришли, пожалуйста, заполненное ТЗ по шаблону:",
             parse_mode="Markdown"
@@ -225,16 +217,17 @@ async def handle_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 Заполни этот шаблон и пришли мне!"""
         
-        await update.message.reply_text(template)
+        update.message.reply_text(template)
     else:
-        await process_brief(update, context)
+        process_brief(update, context)
 
-async def process_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def process_brief(update: Update, context: CallbackContext):
+    """Обработка ТЗ и генерация текста"""
     brief = update.message.text
     copy_type = context.user_data.get("copy_type", "копирайт")
 
     try:
-        await update.message.reply_text("⏳ Генерирую текст с помощью DeepSeek AI...")
+        update.message.reply_text("⏳ Генерирую текст с помощью DeepSeek AI...")
 
         # Пробуем DeepSeek API
         response = deepseek_chat_completion([
@@ -263,13 +256,13 @@ async def process_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Разбиваем результат на части если он слишком длинный
         if len(result) > 4000:
-            await update.message.reply_text(f"🎯 Вот твой {copy_type.lower()} (DeepSeek AI):\n\n")
+            update.message.reply_text(f"🎯 Вот твой {copy_type.lower()} (DeepSeek AI):\n\n")
             for i in range(0, len(result), 4000):
-                await update.message.reply_text(result[i:i+4000])
+                update.message.reply_text(result[i:i+4000])
         else:
-            await update.message.reply_text(f"🎯 Вот твой {copy_type.lower()} (DeepSeek AI):\n\n{result}")
+            update.message.reply_text(f"🎯 Вот твой {copy_type.lower()} (DeepSeek AI):\n\n{result}")
             
-        await update.message.reply_text(
+        update.message.reply_text(
             "✨ Хочешь создать еще один текст? Выбери тип контента:",
             reply_markup=create_keyboard()
         )
@@ -280,95 +273,65 @@ async def process_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Если DeepSeek недоступен, используем резервную генерацию
         if "402" in error_msg or "Payment" in error_msg:
-            await update.message.reply_text(
+            update.message.reply_text(
                 "❌ Недостаточно средств на аккаунте DeepSeek.\n"
                 "Использую резервную генерацию..."
             )
         elif "401" in error_msg or "auth" in error_msg.lower():
-            await update.message.reply_text(
+            update.message.reply_text(
                 "❌ Ошибка аутентификации DeepSeek.\n"
                 "Использую резервную генерацию..."
             )
         else:
-            await update.message.reply_text(
+            update.message.reply_text(
                 "⏳ DeepSeek временно недоступен. Использую резервную генерацию..."
             )
         
         # Используем резервную генерацию
         result = generate_fallback_text(brief, copy_type)
         
-        await update.message.reply_text(f"🎯 Вот твой {copy_type.lower()}:\n\n{result}")
-        await update.message.reply_text(
+        update.message.reply_text(f"🎯 Вот твой {copy_type.lower()}:\n\n{result}")
+        update.message.reply_text(
             "✨ Создать еще текст?",
             reply_markup=create_keyboard()
         )
 
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def error_handler(update: Update, context: CallbackContext):
+    """Обработчик ошибок"""
     logger.error(f"Ошибка: {context.error}")
 
-# Создаем Application глобально
-application = Application.builder().token(TELEGRAM_TOKEN).build()
-
-def setup_handlers():
-    """Настраиваем обработчики"""
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_choice))
-    application.add_error_handler(error_handler)
-
 def main():
-    """Запуск бота с webhook"""
+    """Основная функция запуска бота"""
+    # Проверяем наличие токенов
     if not TELEGRAM_TOKEN:
-        logger.error("❌ TELEGRAM_TOKEN не найден!")
+        logger.error("❌ TELEGRAM_TOKEN не найден в переменных окружения!")
         return
         
     if not DEEPSEEK_API_KEY:
         logger.warning("⚠️ DEEPSEEK_API_KEY не найден. Будет использоваться резервная генерация.")
 
     try:
-        # Настраиваем обработчики
-        setup_handlers()
+        # Создаем и настраиваем Updater
+        updater = Updater(TELEGRAM_TOKEN, use_context=True)
         
-        # Запускаем webhook сервер
-        from flask import Flask, request
-        import threading
+        # Получаем диспетчер для регистрации обработчиков
+        dp = updater.dispatcher
+
+        # Добавляем обработчики
+        dp.add_handler(CommandHandler("start", start))
+        dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_choice))
         
-        app = Flask(__name__)
+        # Добавляем обработчик ошибок
+        dp.add_error_handler(error_handler)
+
+        logger.info("✅ Бот с DeepSeek запущен на Railway!")
         
-        @app.route('/')
-        def home():
-            return "🤖 Copywriter Bot is running!"
-        
-        @app.route('/webhook', methods=['POST'])
-        def webhook():
-            """Endpoint для webhook Telegram"""
-            update = Update.de_json(request.get_json(force=True), application.bot)
-            application.update_queue.put(update)
-            return 'OK'
-        
-        @app.route('/set_webhook', methods=['GET'])
-        def set_webhook():
-            """Установка webhook"""
-            if RAILWAY_STATIC_URL:
-                webhook_url = f"{RAILWAY_STATIC_URL}/webhook"
-                application.bot.set_webhook(webhook_url)
-                return f"Webhook установлен: {webhook_url}"
-            return "RAILWAY_STATIC_URL не настроен"
-        
-        # Запускаем обработку обновлений в отдельном потоке
-        def run_bot():
-            application.run_polling()
-        
-        bot_thread = threading.Thread(target=run_bot, daemon=True)
-        bot_thread.start()
-        
-        logger.info("✅ Бот запущен в режиме webhook!")
-        
-        # Запускаем Flask сервер
-        port = int(os.getenv("PORT", 5000))
-        app.run(host='0.0.0.0', port=port)
+        # Запускаем бота
+        updater.start_polling()
+        updater.idle()
         
     except Exception as e:
-        logger.error(f"❌ Ошибка запуска: {e}")
+        logger.error(f"❌ Ошибка запуска бота: {e}")
 
 if __name__ == "__main__":
     main()
