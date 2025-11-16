@@ -291,6 +291,9 @@ def create_template_keyboard():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start"""
+    # Очищаем данные пользователя
+    context.user_data.clear()
+    
     await update.message.reply_text(
         "Привет! 👋 Я AI Copywriter Bot (DeepSeek)\n"
         "Использую мощный AI для создания качественных текстов.\n\n"
@@ -298,7 +301,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=create_copy_type_keyboard()
     )
 
-async def handle_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_copy_type_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик выбора типа контента"""
     choice = update.message.text
     
@@ -310,8 +313,17 @@ async def handle_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             reply_markup=create_template_keyboard()
         )
-        
-    elif choice in TZ_TEMPLATE_CHOICES:
+    else:
+        await update.message.reply_text(
+            "Пожалуйста, выбери тип контента из предложенных вариантов:",
+            reply_markup=create_copy_type_keyboard()
+        )
+
+async def handle_template_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик выбора шаблона ТЗ"""
+    choice = update.message.text
+    
+    if choice in TZ_TEMPLATE_CHOICES:
         # Сохраняем выбранный шаблон
         context.user_data["selected_template"] = choice
         template_content = TZ_TEMPLATES[choice]
@@ -328,13 +340,14 @@ async def handle_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📝 Пришли заполненное ТЗ сообщением ниже:",
             reply_markup=None  # Убираем клавиатуру для ввода текста
         )
-        
     else:
-        # Если это не выбор типа контента и не шаблона, значит это ТЗ
-        await process_brief(update, context)
+        await update.message.reply_text(
+            "Пожалуйста, выбери шаблон из предложенных вариантов:",
+            reply_markup=create_template_keyboard()
+        )
 
-async def process_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка ТЗ и генерация текста"""
+async def handle_brief_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик ввода ТЗ"""
     brief = update.message.text
     copy_type = context.user_data.get("copy_type", "копирайт")
     template_type = context.user_data.get("selected_template", "шаблон")
@@ -364,6 +377,9 @@ async def process_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(f"🎯 Вот твой {copy_type.lower()} (DeepSeek AI):\n\n{result}")
             
+        # Очищаем данные для нового запроса
+        context.user_data.clear()
+            
         await update.message.reply_text(
             "✨ Хочешь создать еще один текст? Выбери тип контента:",
             reply_markup=create_copy_type_keyboard()
@@ -392,10 +408,29 @@ async def process_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
         result = generate_fallback_text(brief, copy_type)
         
         await update.message.reply_text(f"🎯 Вот твой {copy_type.lower()}:\n\n{result}")
+        
+        # Очищаем данные для нового запроса
+        context.user_data.clear()
+        
         await update.message.reply_text(
             "✨ Создать еще текст? Выбери тип контента:",
             reply_markup=create_copy_type_keyboard()
         )
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Главный обработчик сообщений с правильной маршрутизацией"""
+    user_message = update.message.text
+    
+    # Определяем текущее состояние пользователя
+    if "copy_type" not in context.user_data:
+        # Пользователь еще не выбрал тип контента
+        await handle_copy_type_choice(update, context)
+    elif "selected_template" not in context.user_data:
+        # Пользователь выбрал тип контента, но не шаблон
+        await handle_template_choice(update, context)
+    else:
+        # Пользователь вводит ТЗ
+        await handle_brief_input(update, context)
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик ошибок"""
@@ -417,7 +452,7 @@ def main():
 
         # Добавляем обработчики
         application.add_handler(CommandHandler("start", start))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_choice))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         
         # Добавляем обработчик ошибок
         application.add_error_handler(error_handler)
