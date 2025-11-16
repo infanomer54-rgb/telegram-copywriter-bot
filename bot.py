@@ -210,7 +210,7 @@ TZ_TEMPLATES = {
 
     "📝 Стандартный шаблон": """📝 СТАНДАРТНЫЙ ШАБЛОН ТЗ (Рекомендуется)
 
-1. ОСНОВНАЯ ИНФОРМАЦИЯ:
+1. ОСНОВНАИНФОРМАЦИЯ:
    - Продукт/услуга: 
    - Основное предложение:
    - Уникальное торговое предложение:
@@ -301,14 +301,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=create_copy_type_keyboard()
     )
 
-async def handle_copy_type_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик выбора типа контента"""
-    choice = update.message.text
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Главный обработчик сообщений с правильной маршрутизацией"""
+    user_message = update.message.text
     
-    if choice in COPY_TYPES:
-        context.user_data["copy_type"] = choice
+    # Определяем текущее состояние пользователя
+    if "copy_type" not in context.user_data:
+        # Пользователь еще не выбрал тип контента
+        await handle_copy_type_choice(update, context, user_message)
+    elif "selected_template" not in context.user_data:
+        # Пользователь выбрал тип контента, но не шаблон
+        await handle_template_choice(update, context, user_message)
+    else:
+        # Пользователь вводит ТЗ
+        await handle_brief_input(update, context, user_message)
+
+async def handle_copy_type_choice(update: Update, context: ContextTypes.DEFAULT_TYPE, user_message: str):
+    """Обработчик выбора типа контента"""
+    if user_message in COPY_TYPES:
+        context.user_data["copy_type"] = user_message
         await update.message.reply_text(
-            f"Отлично! Ты выбрал: *{choice}*\n\n"
+            f"Отлично! Ты выбрал: *{user_message}*\n\n"
             "Теперь выбери шаблон для ТЗ:",
             parse_mode="Markdown",
             reply_markup=create_template_keyboard()
@@ -319,17 +332,15 @@ async def handle_copy_type_choice(update: Update, context: ContextTypes.DEFAULT_
             reply_markup=create_copy_type_keyboard()
         )
 
-async def handle_template_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_template_choice(update: Update, context: ContextTypes.DEFAULT_TYPE, user_message: str):
     """Обработчик выбора шаблона ТЗ"""
-    choice = update.message.text
-    
-    if choice in TZ_TEMPLATE_CHOICES:
+    if user_message in TZ_TEMPLATE_CHOICES:
         # Сохраняем выбранный шаблон
-        context.user_data["selected_template"] = choice
-        template_content = TZ_TEMPLATES[choice]
+        context.user_data["selected_template"] = user_message
+        template_content = TZ_TEMPLATES[user_message]
         
         await update.message.reply_text(
-            f"🎯 Выбран шаблон: *{choice}*\n\n"
+            f"🎯 Выбран шаблон: *{user_message}*\n\n"
             "Заполни этот шаблон и пришли мне готовое ТЗ:",
             parse_mode="Markdown"
         )
@@ -346,9 +357,9 @@ async def handle_template_choice(update: Update, context: ContextTypes.DEFAULT_T
             reply_markup=create_template_keyboard()
         )
 
-async def handle_brief_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_brief_input(update: Update, context: ContextTypes.DEFAULT_TYPE, user_message: str):
     """Обработчик ввода ТЗ"""
-    brief = update.message.text
+    brief = user_message
     copy_type = context.user_data.get("copy_type", "копирайт")
     template_type = context.user_data.get("selected_template", "шаблон")
 
@@ -416,21 +427,6 @@ async def handle_brief_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "✨ Создать еще текст? Выбери тип контента:",
             reply_markup=create_copy_type_keyboard()
         )
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Главный обработчик сообщений с правильной маршрутизацией"""
-    user_message = update.message.text
-    
-    # Определяем текущее состояние пользователя
-    if "copy_type" not in context.user_data:
-        # Пользователь еще не выбрал тип контента
-        await handle_copy_type_choice(update, context)
-    elif "selected_template" not in context.user_data:
-        # Пользователь выбрал тип контента, но не шаблон
-        await handle_template_choice(update, context)
-    else:
-        # Пользователь вводит ТЗ
-        await handle_brief_input(update, context)
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик ошибок"""
