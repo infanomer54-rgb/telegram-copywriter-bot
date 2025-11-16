@@ -191,33 +191,24 @@ COPY_TYPES = [
     "📚 Статья или блог"
 ]
 
-def create_keyboard():
-    """Создание клавиатуры"""
-    keyboard = [[item] for item in COPY_TYPES]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+# Шаблоны ТЗ с разным уровнем детализации
+TZ_TEMPLATES = {
+    "📋 Базовый шаблон": """📋 БАЗОВЫЙ ШАБЛОН ТЗ (Минимум)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /start"""
-    await update.message.reply_text(
-        "Привет! 👋 Я AI Copywriter Bot (DeepSeek)\n"
-        "Использую мощный AI для создания качественных текстов.\n\n"
-        "Выбери тип контента:",
-        reply_markup=create_keyboard()
-    )
+1. ОСНОВНАЯ ИНФОРМАЦИЯ:
+   - Продукт/услуга: 
+   - Основное предложение:
 
-async def handle_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик выбора типа контента"""
-    choice = update.message.text
-    
-    if choice in COPY_TYPES:
-        context.user_data["copy_type"] = choice
-        await update.message.reply_text(
-            f"Отлично! Ты выбрал: *{choice}*\n\n"
-            "Теперь пришли, пожалуйста, заполненное ТЗ по шаблону:",
-            parse_mode="Markdown"
-        )
-        
-        template = """📋 ШАБЛОН ТЕХНИЧЕСКОГО ЗАДАНИЯ
+2. ЦЕЛЕВАЯ АУДИТОРИЯ:
+   - Кто ваши клиенты:
+
+3. ЦЕЛИ ТЕКСТА:
+   - Что должен сделать читатель:
+
+4. КЛЮЧЕВОЕ СООБЩЕНИЕ:
+   - Главная мысль текста:""",
+
+    "📝 Стандартный шаблон": """📝 СТАНДАРТНЫЙ ШАБЛОН ТЗ (Рекомендуется)
 
 1. ОСНОВНАЯ ИНФОРМАЦИЯ:
    - Продукт/услуга: 
@@ -229,44 +220,127 @@ async def handle_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
    - Пол:
    - Интересы:
    - Боли и потребности:
+
+3. ЦЕЛИ ТЕКСТА:
+   - Основная цель (информировать, продать, развлечь):
+   - Ключевое сообщение:
+   - Призыв к действию:
+
+4. СТИЛИСТИКА И ТОН:
+   - Тон голоса (формальный, дружеский, экспертный):
+
+5. ТЕХНИЧЕСКИЕ ТРЕБОВАНИЯ:
+   - Объем текста:
+   - Особые пожелания:""",
+
+    "🎯 Детальный шаблон": """🎯 ДЕТАЛЬНЫЙ ШАБЛОН ТЗ (Максимум)
+
+1. ОСНОВНАЯ ИНФОРМАЦИЯ:
+   - Продукт/услуга: 
+   - Основное предложение:
+   - Уникальное торговое предложение:
+   - Конкурентные преимущества:
+
+2. ЦЕЛЕВАЯ АУДИТОРИЯ:
+   - Возраст: 
+   - Пол:
+   - Интересы:
+   - Боли и потребности:
    - Ценности:
+   - Уровень дохода:
+   - География:
 
 3. ЦЕЛИ ТЕКСТА:
    - Основная цель (информировать, продать, развлечь):
    - Ключевое сообщение:
    - Призыв к действию:
    - Желаемая реакция:
+   - KPI эффективности:
 
 4. СТИЛИСТИКА И ТОН:
    - Тон голоса (формальный, дружеский, экспертный, юмористический):
    - Ключевые слова:
    - Особые пожелания:
    - Что избегать:
+   - Примеры понравившихся текстов:
 
 5. ТЕХНИЧЕСКИЕ ТРЕБОВАНИЯ:
    - Объем текста:
    - Структура:
    - Ограничения (не упоминать, обязательно упомянуть):
    - Формат представления:
+   - Сроки:
 
 6. ДОПОЛНИТЕЛЬНАЯ ИНФОРМАЦИЯ:
-   - Конкурентные преимущества:
-   - Примеры понравившихся текстов:
    - Особые акции/предложения:
+   - Отзывы клиентов:
+   - Статистика и цифры:"""
+}
 
-Заполни этот шаблон и пришли мне!"""
+TZ_TEMPLATE_CHOICES = list(TZ_TEMPLATES.keys())
+
+def create_copy_type_keyboard():
+    """Создание клавиатуры для выбора типа контента"""
+    keyboard = [[item] for item in COPY_TYPES]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+def create_template_keyboard():
+    """Создание клавиатуры для выбора шаблона ТЗ"""
+    keyboard = [[item] for item in TZ_TEMPLATE_CHOICES]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /start"""
+    await update.message.reply_text(
+        "Привет! 👋 Я AI Copywriter Bot (DeepSeek)\n"
+        "Использую мощный AI для создания качественных текстов.\n\n"
+        "Выбери тип контента:",
+        reply_markup=create_copy_type_keyboard()
+    )
+
+async def handle_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик выбора типа контента"""
+    choice = update.message.text
+    
+    if choice in COPY_TYPES:
+        context.user_data["copy_type"] = choice
+        await update.message.reply_text(
+            f"Отлично! Ты выбрал: *{choice}*\n\n"
+            "Теперь выбери шаблон для ТЗ:",
+            parse_mode="Markdown",
+            reply_markup=create_template_keyboard()
+        )
         
-        await update.message.reply_text(template)
+    elif choice in TZ_TEMPLATE_CHOICES:
+        # Сохраняем выбранный шаблон
+        context.user_data["selected_template"] = choice
+        template_content = TZ_TEMPLATES[choice]
+        
+        await update.message.reply_text(
+            f"🎯 Выбран шаблон: *{choice}*\n\n"
+            "Заполни этот шаблон и пришли мне готовое ТЗ:",
+            parse_mode="Markdown"
+        )
+        
+        # Отправляем выбранный шаблон
+        await update.message.reply_text(template_content)
+        await update.message.reply_text(
+            "📝 Пришли заполненное ТЗ сообщением ниже:",
+            reply_markup=None  # Убираем клавиатуру для ввода текста
+        )
+        
     else:
+        # Если это не выбор типа контента и не шаблона, значит это ТЗ
         await process_brief(update, context)
 
 async def process_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка ТЗ и генерация текста"""
     brief = update.message.text
     copy_type = context.user_data.get("copy_type", "копирайт")
+    template_type = context.user_data.get("selected_template", "шаблон")
 
     try:
-        await update.message.reply_text("⏳ Генерирую текст с помощью DeepSeek AI...")
+        await update.message.reply_text(f"⏳ Генерирую {copy_type.lower()} с помощью DeepSeek AI...")
 
         # Пробуем DeepSeek API
         response = await deepseek_chat_completion([
@@ -276,7 +350,7 @@ async def process_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
             },
             {
                 "role": "user", 
-                "content": f"Создай {copy_type.lower()} на основе этого ТЗ:\n\n{brief}"
+                "content": f"Создай {copy_type.lower()} на основе этого ТЗ (шаблон: {template_type}):\n\n{brief}"
             }
         ])
 
@@ -292,7 +366,7 @@ async def process_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         await update.message.reply_text(
             "✨ Хочешь создать еще один текст? Выбери тип контента:",
-            reply_markup=create_keyboard()
+            reply_markup=create_copy_type_keyboard()
         )
             
     except Exception as e:
@@ -319,8 +393,8 @@ async def process_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await update.message.reply_text(f"🎯 Вот твой {copy_type.lower()}:\n\n{result}")
         await update.message.reply_text(
-            "✨ Создать еще текст?",
-            reply_markup=create_keyboard()
+            "✨ Создать еще текст? Выбери тип контента:",
+            reply_markup=create_copy_type_keyboard()
         )
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
