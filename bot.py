@@ -19,7 +19,13 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 BASE_URL = "https://api.deepseek.com/v1"
 
 async def deepseek_chat_completion(messages, max_tokens=1000):
-    """Асинхронная функция для работы с DeepSeek API"""
+    """Асинхронная функция для работы с DeepSeek API с улучшенной обработкой ошибок"""
+    
+    # Проверяем наличие API ключа
+    if not DEEPSEEK_API_KEY:
+        logger.error("❌ DEEPSEEK_API_KEY не настроен")
+        raise Exception("API ключ DeepSeek не настроен. Проверьте переменные окружения.")
+    
     headers = {
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
         "Content-Type": "application/json"
@@ -33,7 +39,8 @@ async def deepseek_chat_completion(messages, max_tokens=1000):
     }
     
     try:
-        logger.info("🔄 Отправка запроса к DeepSeek API...")
+        logger.info(f"🔄 Отправка запроса к DeepSeek API... Токен: {DEEPSEEK_API_KEY[:10]}...")
+        
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{BASE_URL}/chat/completions", 
@@ -41,13 +48,43 @@ async def deepseek_chat_completion(messages, max_tokens=1000):
                 json=data, 
                 timeout=aiohttp.ClientTimeout(total=30)
             ) as response:
-                response.raise_for_status()
-                result = await response.json()
-                logger.info("✅ Успешный ответ от DeepSeek API")
-                return result
+                
+                logger.info(f"📡 Статус ответа: {response.status}")
+                
+                if response.status == 200:
+                    result = await response.json()
+                    logger.info("✅ Успешный ответ от DeepSeek API")
+                    return result
+                else:
+                    error_text = await response.text()
+                    logger.error(f"❌ Ошибка HTTP {response.status}: {error_text}")
+                    
+                    if response.status == 401:
+                        raise Exception("Ошибка аутентификации: неверный API ключ DeepSeek")
+                    elif response.status == 402:
+                        raise Exception("Недостаточно средств на аккаунте DeepSeek")
+                    elif response.status == 429:
+                        raise Exception("Превышен лимит запросов к DeepSeek API")
+                    elif response.status == 500:
+                        raise Exception("Внутренняя ошибка сервера DeepSeek")
+                    else:
+                        raise Exception(f"Ошибка DeepSeek API: {response.status} - {error_text}")
+                        
+    except aiohttp.ClientConnectorError as e:
+        logger.error(f"🔌 Ошибка подключения к DeepSeek: {e}")
+        raise Exception("Не удалось подключиться к серверу DeepSeek. Проверьте интернет-соединение.")
+    
+    except asyncio.TimeoutError:
+        logger.error("⏰ Таймаут подключения к DeepSeek API")
+        raise Exception("Таймаут подключения к DeepSeek API. Попробуйте позже.")
+    
+    except aiohttp.ClientError as e:
+        logger.error(f"🌐 Сетевая ошибка: {e}")
+        raise Exception(f"Сетевая ошибка: {e}")
+    
     except Exception as e:
-        logger.error(f"❌ Ошибка DeepSeek API: {e}")
-        raise
+        logger.error(f"❌ Неизвестная ошибка DeepSeek: {e}")
+        raise Exception(f"Ошибка при обращении к DeepSeek API: {e}")
 
 def generate_fallback_text(brief, copy_type):
     """Резервная генерация текста если DeepSeek недоступен"""
@@ -235,22 +272,11 @@ async def process_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = await deepseek_chat_completion([
             {
                 "role": "system", 
-                "content": f"""Ты профессиональный копирайтер-эксперт. Создай качественный {copy_type} на русском языке.
-                
-Требования:
-- Учитывай современные тренды и лучшие практики
-- Будь креативным и убедительным
-- Пиши естественно, как для реального бизнеса
-- Учитывай целевую аудиторию и цели текста
-- Создавай готовый к использованию контент"""
+                "content": f"""Ты профессиональный копирайтер-эксперт. Создай качественный {copy_type} на русском языке."""
             },
             {
                 "role": "user", 
-                "content": f"""Создай {copy_type.lower()} на основе этого технического задания:
-
-{brief}
-
-Учти все указанные требования, пожелания и технические характеристики. Сделай текст профессиональным, engaging и ориентированным на целевую аудиторию."""
+                "content": f"Создай {copy_type.lower()} на основе этого ТЗ:\n\n{brief}"
             }
         ])
 
@@ -271,23 +297,22 @@ async def process_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
     except Exception as e:
         error_msg = str(e)
-        logger.error(f"Ошибка DeepSeek: {error_msg}")
+        logger.error(f"Ошибка в process_brief: {error_msg}")
         
-        # Если DeepSeek недоступен, используем резервную генерацию
-        if "402" in error_msg or "Payment" in error_msg:
-            await update.message.reply_text(
-                "❌ Недостаточно средств на аккаунте DeepSeek.\n"
-                "Использую резервную генерацию..."
-            )
-        elif "401" in error_msg or "auth" in error_msg.lower():
-            await update.message.reply_text(
-                "❌ Ошибка аутентификации DeepSeek.\n"
-                "Использую резервную генерацию..."
-            )
+        # Более информативные сообщения об ошибках
+        if "аутентификации" in error_msg or "401" in error_msg:
+            user_msg = "❌ Ошибка аутентификации DeepSeek. Проверьте API ключ в настройках."
+        elif "средств" in error_msg or "402" in error_msg:
+            user_msg = "❌ Недостаточно средств на аккаунте DeepSeek. Пополните баланс."
+        elif "подключени" in error_msg or "таймаут" in error_msg.lower():
+            user_msg = "🌐 Проблемы с подключением к DeepSeek. Проверьте интернет или попробуйте позже."
+        elif "лимит" in error_msg or "429" in error_msg:
+            user_msg = "⏳ Превышен лимит запросов. Подождите немного и попробуйте снова."
         else:
-            await update.message.reply_text(
-                "⏳ DeepSeek временно недоступен. Использую резервную генерацию..."
-            )
+            user_msg = "🤖 DeepSeek временно недоступен."
+        
+        await update.message.reply_text(user_msg)
+        await update.message.reply_text("🔄 Использую резервную генерацию...")
         
         # Используем резервную генерацию
         result = generate_fallback_text(brief, copy_type)
@@ -300,7 +325,7 @@ async def process_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик ошибок"""
-    logger.error(f"Ошибка: {context.error}")
+    logger.error(f"Ошибка бота: {context.error}")
 
 def main():
     """Основная функция запуска бота"""
@@ -310,10 +335,10 @@ def main():
         return
         
     if not DEEPSEEK_API_KEY:
-        logger.warning("⚠️ DEEPSEEK_API_KEY не найден. Будет использоваться резервная генерация.")
+        logger.warning("⚠️ DEEPSEEK_API_KEY не найден. Будет использоваться только резервная генерация.")
 
     try:
-        # Создаем и настраиваем Application для Python 3.13
+        # Создаем и настраиваем Application
         application = Application.builder().token(TELEGRAM_TOKEN).build()
 
         # Добавляем обработчики
@@ -323,13 +348,14 @@ def main():
         # Добавляем обработчик ошибок
         application.add_error_handler(error_handler)
 
-        logger.info("✅ Бот с DeepSeek запущен на Python 3.13.9!")
+        logger.info("✅ Бот запущен!")
+        logger.info(f"🔑 DeepSeek API ключ: {'Настроен' if DEEPSEEK_API_KEY else 'Не настроен'}")
         
         # Запускаем бота
         application.run_polling()
         
     except Exception as e:
-        logger.error(f"❌ Ошибка запуска бота: {e}")
+        logger.error(f"❌ Критическая ошибка запуска бота: {e}")
 
 if __name__ == "__main__":
     main()
